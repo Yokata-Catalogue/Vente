@@ -1,0 +1,1996 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Conventions" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <title>🎌 Mes Conventions</title>
+
+  <!-- Firebase CDN (chargé seulement si FIREBASE_READY = true) -->
+  <script type="module">
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    window.firebaseApp = { initializeApp, getApps };
+    window.firebaseFirestore = { getFirestore, doc, setDoc, onSnapshot };
+    window.firebaseLoaded = true;
+  </script>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #f8f7f5;
+      color: #1a1a2e;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    input, select, textarea, button { font-family: inherit; }
+    /* Hide scrollbar on filter rows */
+    ::-webkit-scrollbar { display: none; }
+    scrollbar-width: none;
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+
+
+const CATEGORIES = ["Géant", "Grand", "Moyen", "Mini"];
+
+function genId() { return Math.random().toString(36).slice(2, 10); }
+
+function euro(val) {
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(val || 0);
+}
+
+function hhmm(ts) {
+  return new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function dateRange(a, b) {
+  if (!a) return "";
+  const fa = new Date(a);
+  const opts = { day: "numeric", month: "long", year: "numeric" };
+  if (!b || a === b) return fa.toLocaleDateString("fr-FR", opts);
+  const fb = new Date(b);
+  if (fa.getMonth() === fb.getMonth() && fa.getFullYear() === fb.getFullYear()) {
+    return `${fa.getDate()} – ${fb.toLocaleDateString("fr-FR", opts)}`;
+  }
+  return `${fa.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} – ${fb.toLocaleDateString("fr-FR", opts)}`;
+}
+
+function calcEvent(ev) {
+  const sales = ev.sales || [];
+  const products = ev.products || [];
+  const gross = sales.filter(s => !s.isDonation).reduce((t, s) => t + s.total, 0);
+  const fixedCosts = Object.values(ev.costs || {}).reduce((t, v) => t + (parseFloat(v) || 0), 0);
+  const cogsSold = sales.filter(s => !s.isDonation).reduce((t, s) =>
+    t + s.items.reduce((ti, item) => {
+      const p = products.find(p => p.id === item.productId);
+      return ti + (p ? p.costPrice || 0 : 0) * item.qty;
+    }, 0), 0);
+  return { gross, fixedCosts, cogsSold, net: gross - fixedCosts - cogsSold, count: sales.filter(s => !s.isDonation).length };
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function Lbl({ children }) {
+  return <p style={{ margin: "0 0 5px", fontSize: 11, fontWeight: 600, color: "#6b6b80", textTransform: "uppercase", letterSpacing: "0.05em" }}>{children}</p>;
+}
+
+function Inp({ value, onChange, type = "text", placeholder = "", min, step, list }) {
+  return (
+    <input
+      type={type} value={value} onChange={e => onChange(e.target.value)}
+      placeholder={placeholder} min={min} step={step} list={list}
+      style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1px solid #e0e0e8", borderRadius: 8, fontSize: 14, outline: "none", background: "#fff", color: "#1a1a2e" }}
+    />
+  );
+}
+
+function Row({ label, children }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Lbl>{label}</Lbl>
+      {children}
+    </div>
+  );
+}
+
+// ── Bottom sheet modal ────────────────────────────────────────────────────────
+function Sheet({ title, onClose, children }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "18px 18px 0 0", width: "100%", maxWidth: 560, maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f0f0f5", flexShrink: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
+          <button onClick={onClose} style={{ border: "none", background: "#f0f0f5", borderRadius: 8, padding: "6px 10px", fontSize: 15, cursor: "pointer", fontWeight: 700, color: "#6b6b80" }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto", padding: "1rem 1.25rem", flex: 1 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Btn({ onClick, children, color = "#1a1a2e", textColor = "#fff", full, outline }) {
+  return (
+    <button onClick={onClick} style={{
+      width: full ? "100%" : undefined,
+      padding: "11px 18px", border: outline ? `1px solid ${color}` : "none",
+      borderRadius: 10, background: outline ? "transparent" : color,
+      color: outline ? color : textColor, fontWeight: 700, fontSize: 14, cursor: "pointer"
+    }}>{children}</button>
+  );
+}
+
+// ── EVENT FORM ────────────────────────────────────────────────────────────────
+function EventForm({ existing, onSave, onClose }) {
+  const blank = { ticket: "", airbnb: "", transport: "", other: "" };
+  const [name, setName] = useState(existing?.name || "");
+  const [ds, setDs] = useState(existing?.dateStart || existing?.date || new Date().toISOString().slice(0, 10));
+  const [de, setDe] = useState(existing?.dateEnd || "");
+  const [loc, setLoc] = useState(existing?.location || "");
+  const [costs, setCosts] = useState(existing?.costs || blank);
+  const total = Object.values(costs).reduce((t, v) => t + (parseFloat(v) || 0), 0);
+
+  function save() {
+    if (!name.trim()) { alert("Nom requis"); return; }
+    onSave({
+      id: existing?.id || genId(),
+      name: name.trim(), dateStart: ds, dateEnd: de, location: loc,
+      costs, totalCosts: total,
+      products: existing?.products || [],
+      sales: existing?.sales || [],
+      eventPhotos: existing?.eventPhotos || [],
+      createdAt: existing?.createdAt || Date.now(),
+    });
+    onClose();
+  }
+
+  const ci = (k) => (v) => setCosts(c => ({ ...c, [k]: v }));
+
+  return (
+    <>
+      <Row label="Nom"><Inp value={name} onChange={setName} placeholder="Japan Expo 2025…" /></Row>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Row label="Début"><Inp type="date" value={ds} onChange={setDs} /></Row>
+        <Row label="Fin"><Inp type="date" value={de} onChange={setDe} /></Row>
+      </div>
+      <Row label="Lieu"><Inp value={loc} onChange={setLoc} placeholder="Paris, Lyon…" /></Row>
+      <div style={{ background: "#f8f8fc", borderRadius: 10, padding: "1rem", marginBottom: 14 }}>
+        <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 12, color: "#6b6b80", textTransform: "uppercase" }}>Frais</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Row label="Stand / billet (€)"><Inp type="number" value={costs.ticket} onChange={ci("ticket")} placeholder="0" min="0" /></Row>
+          <Row label="Airbnb (€)"><Inp type="number" value={costs.airbnb} onChange={ci("airbnb")} placeholder="0" min="0" /></Row>
+          <Row label="Transport (€)"><Inp type="number" value={costs.transport} onChange={ci("transport")} placeholder="0" min="0" /></Row>
+          <Row label="Autres (€)"><Inp type="number" value={costs.other} onChange={ci("other")} placeholder="0" min="0" /></Row>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #e8e8f0", fontWeight: 700 }}>
+          <span>Total frais</span><span style={{ color: "#e05050" }}>{euro(total)}</span>
+        </div>
+      </div>
+      <Btn onClick={save} full>{existing ? "Mettre à jour" : "Créer l'événement"}</Btn>
+    </>
+  );
+}
+
+// ── PRODUCT FORM ──────────────────────────────────────────────────────────────
+function ProductForm({ existing, onSave, onClose, mangaList }) {
+  const [name, setName] = useState(existing?.name || "");
+  const [cat, setCat] = useState(existing?.category || "Moyen");
+  const [manga, setManga] = useState(existing?.manga || "");
+  const [price, setPrice] = useState(existing?.price || "");
+  const [cost, setCost] = useState(existing?.costPrice || "");
+  const [stock, setStock] = useState(existing?.stock || "");
+  const [photo, setPhoto] = useState(existing?.photo || null);
+  const [isPack, setIsPack] = useState(existing?.isPack || false);
+  const [packDesc, setPackDesc] = useState(existing?.packItems || "");
+  const [order, setOrder] = useState(existing?.sortOrder ?? 999);
+  const ref = useRef();
+
+  function pickPhoto(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = ev => setPhoto(ev.target.result);
+    r.readAsDataURL(file);
+  }
+
+  function save() {
+    if (!name.trim()) { alert("Nom requis"); return; }
+    if (!price) { alert("Prix requis"); return; }
+    onSave({
+      id: existing?.id || genId(),
+      name: name.trim(), category: cat, manga: manga.trim(),
+      price: parseFloat(price), costPrice: parseFloat(cost) || 0,
+      stock: parseInt(stock) || 0, photo, isPack, packItems: packDesc.trim(),
+      sortOrder: parseInt(order) || 999,
+    });
+    onClose();
+  }
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+        <button onClick={() => ref.current.click()} style={{ width: 80, height: 80, flexShrink: 0, borderRadius: 12, border: "1px dashed #ccc", background: "#f8f8fc", cursor: "pointer", overflow: "hidden", padding: 0 }}>
+          {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 28 }}>📷</span>}
+        </button>
+        <input ref={ref} type="file" accept="image/*" onChange={pickPhoto} style={{ display: "none" }} />
+        <div style={{ flex: 1 }}>
+          <Row label="Nom"><Inp value={name} onChange={setName} placeholder="Miroir Naruto…" /></Row>
+          <Row label="Manga / série">
+            <Inp value={manga} onChange={setManga} placeholder="Naruto, One Piece…" list="manga-dl" />
+            <datalist id="manga-dl">{mangaList.map(m => <option key={m} value={m} />)}</datalist>
+          </Row>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Row label="Catégorie">
+          <select value={cat} onChange={e => setCat(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: "1px solid #e0e0e8", borderRadius: 8, fontSize: 14, background: "#fff" }}>
+            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </Row>
+        <Row label="Ordre affiché"><Inp type="number" value={order} onChange={setOrder} min="0" placeholder="1, 2…" /></Row>
+        <Row label="Prix vente (€)"><Inp type="number" value={price} onChange={setPrice} min="0" step="0.5" /></Row>
+        <Row label="Prix revient (€)"><Inp type="number" value={cost} onChange={setCost} min="0" step="0.5" /></Row>
+        <Row label="Stock initial"><Inp type="number" value={stock} onChange={setStock} min="0" /></Row>
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer", fontSize: 14 }}>
+        <input type="checkbox" checked={isPack} onChange={e => setIsPack(e.target.checked)} style={{ width: 16, height: 16 }} />
+        C'est un lot / pack
+      </label>
+      {isPack && (
+        <Row label="Contenu du pack">
+          <textarea value={packDesc} onChange={e => setPackDesc(e.target.value)} placeholder="1 Grand + 1 Mini Naruto…" rows={2}
+            style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1px solid #e0e0e8", borderRadius: 8, fontSize: 14, resize: "vertical" }} />
+        </Row>
+      )}
+      <Btn onClick={save} full>{existing ? "Modifier" : "Ajouter le produit"}</Btn>
+    </>
+  );
+}
+
+// ── CART ─────────────────────────────────────────────────────────────────────
+function Cart({ cart, products, onAdd, onRemove, onConfirm, onClose }) {
+  const [disc, setDisc] = useState(0);
+  const [pay, setPay] = useState("especes");
+  const [isDon, setIsDon] = useState(false);
+  const rawTotal = cart.reduce((t, i) => t + i.price * i.qty, 0);
+  const finalTotal = Math.max(0, rawTotal - disc);
+  const PAY = [{ id: "especes", label: "💵 Espèces" }, { id: "carte", label: "💳 Carte" }, { id: "mixte", label: "🔀 Mixte" }];
+  const QUICK = [5, 10, 15, 20];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "18px 18px 0 0", width: "100%", maxWidth: 560, maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f0f0f5", flexShrink: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 16 }}>🛒 Panier · {cart.reduce((t, i) => t + i.qty, 0)} art.</span>
+          <button onClick={onClose} style={{ border: "none", background: "#f0f0f5", borderRadius: 8, padding: "6px 10px", fontSize: 15, cursor: "pointer", fontWeight: 700, color: "#6b6b80" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 1.25rem" }}>
+          {cart.length === 0
+            ? <p style={{ textAlign: "center", padding: "2rem", color: "#9999aa" }}>Panier vide</p>
+            : cart.map(item => {
+              const prod = products.find(p => p.id === item.productId);
+              return (
+                <div key={item.productId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #f5f5fa" }}>
+                  {item.photo
+                    ? <img src={item.photo} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    : <div style={{ width: 44, height: 44, borderRadius: 8, background: "#f4f3f0", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>🖼️</div>}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{item.name}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9999aa" }}>{euro(item.price)} × {item.qty}</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button onClick={() => onRemove(item.productId)} style={{ width: 32, height: 32, border: "1px solid #eee", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700, color: "#e05050" }}>−</button>
+                    <span style={{ fontWeight: 700, fontSize: 15, minWidth: 20, textAlign: "center" }}>{item.qty}</span>
+                    <button onClick={() => prod && onAdd(prod)} style={{ width: 32, height: 32, border: "1px solid #eee", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 18, fontWeight: 700, color: "#1a6b3a" }}>+</button>
+                    <span style={{ fontWeight: 700, fontSize: 14, minWidth: 52, textAlign: "right" }}>{euro(item.price * item.qty)}</span>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+        {cart.length > 0 && (
+          <div style={{ padding: "0.75rem 1.25rem 1rem", borderTop: "1px solid #f0f0f5", background: "#fafafa", flexShrink: 0 }}>
+            <Lbl>Réduction</Lbl>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {QUICK.map(d => (
+                <button key={d} onClick={() => setDisc(disc === d ? 0 : d)}
+                  style={{ padding: "6px 12px", border: "1px solid #ddd", borderRadius: 8, background: disc === d ? "#1a1a2e" : "#fff", color: disc === d ? "#fff" : "#1a1a2e", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                  -{d}€
+                </button>
+              ))}
+              <input type="number" value={disc || ""} onChange={e => setDisc(parseFloat(e.target.value) || 0)} placeholder="Autre…" min="0"
+                style={{ width: 80, padding: "6px 10px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13, outline: "none" }} />
+            </div>
+            <Lbl>Paiement</Lbl>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {PAY.map(m => (
+                <button key={m.id} onClick={() => setPay(m.id)}
+                  style={{ flex: 1, padding: "8px 4px", border: "1px solid #ddd", borderRadius: 8, background: pay === m.id ? "#1a1a2e" : "#fff", color: pay === m.id ? "#fff" : "#1a1a2e", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer", fontSize: 13 }}>
+              <input type="checkbox" checked={isDon} onChange={e => setIsDon(e.target.checked)} style={{ width: 16, height: 16 }} />
+              🎁 Don (ne compte pas dans les recettes)
+            </label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                {disc > 0 && !isDon && <p style={{ margin: 0, fontSize: 12, color: "#aaa", textDecoration: "line-through" }}>{euro(rawTotal)}</p>}
+                <p style={{ margin: 0, fontWeight: 900, fontSize: 24, color: isDon ? "#aaa" : "#1a1a2e" }}>{isDon ? "Don 🎁" : euro(finalTotal)}</p>
+              </div>
+              <button onClick={() => onConfirm({ discount: disc, isDonation: isDon, paymentMethod: pay, total: isDon ? 0 : finalTotal })}
+                style={{ padding: "14px 30px", background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
+                ✓ Valider
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SALE CATALOG ──────────────────────────────────────────────────────────────
+function Catalog({ event, onSale, onClose }) {
+  const [cart, setCart] = useState([]);
+  const [showCart, setShowCart] = useState(false);
+  const [fManga, setFManga] = useState("Tous");
+  const [fCat, setFCat] = useState("Tous");
+  const [toast, setToast] = useState(null);
+  const products = event.products || [];
+
+  const mangas = ["Tous", ...Array.from(new Set(products.map(p => p.manga || "Autres"))).sort()];
+  const activeCats = ["Tous", ...CATEGORIES.filter(c => products.some(p => p.category === c))];
+
+  const visible = products
+    .filter(p => fManga === "Tous" || (p.manga || "Autres") === fManga)
+    .filter(p => fCat === "Tous" || p.category === fCat)
+    .sort((a, b) => (a.sortOrder || 999) - (b.sortOrder || 999));
+
+  const grouped = {};
+  visible.forEach(p => {
+    const m = p.manga || "Autres";
+    if (!grouped[m]) grouped[m] = {};
+    if (!grouped[m][p.category]) grouped[m][p.category] = [];
+    grouped[m][p.category].push(p);
+  });
+
+  function addToCart(p) {
+    setCart(prev => {
+      const ex = prev.find(i => i.productId === p.id);
+      if (ex) return prev.map(i => i.productId === p.id ? { ...i, qty: i.qty + 1 } : i);
+      return [...prev, { productId: p.id, name: p.name, price: p.price, qty: 1, photo: p.photo }];
+    });
+  }
+
+  function removeFromCart(id) {
+    setCart(prev => {
+      const ex = prev.find(i => i.productId === id);
+      if (ex && ex.qty > 1) return prev.map(i => i.productId === id ? { ...i, qty: i.qty - 1 } : i);
+      return prev.filter(i => i.productId !== id);
+    });
+  }
+
+  function confirmSale(opts) {
+    const sale = {
+      id: genId(),
+      items: cart,
+      cartTotal: cart.reduce((t, i) => t + i.price * i.qty, 0),
+      discount: opts.discount,
+      isDonation: opts.isDonation,
+      paymentMethod: opts.paymentMethod,
+      total: opts.total,
+      timestamp: Date.now(),
+    };
+    onSale(sale);
+    const qty = cart.reduce((t, i) => t + i.qty, 0);
+    const tot = opts.total;
+    setCart([]);
+    setShowCart(false);
+    setToast({ qty, tot, isDonation: opts.isDonation });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  const cartQty = cart.reduce((t, i) => t + i.qty, 0);
+  const cartAmt = cart.reduce((t, i) => t + i.price * i.qty, 0);
+  const PAY_ICON = { especes: "💵", carte: "💳", mixte: "🔀" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "#f8f7f5", display: "flex", flexDirection: "column" }}>
+      {toast && (
+        <div style={{ position: "absolute", top: 68, left: "50%", transform: "translateX(-50%)", zIndex: 999, background: "#1a6b3a", color: "#fff", borderRadius: 14, padding: "12px 20px", boxShadow: "0 4px 20px rgba(0,0,0,0.2)", display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 20 }}>✅</span>
+          <div>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{toast.isDonation ? "Don enregistré !" : "Vente enregistrée !"}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "rgba(255,255,255,0.8)" }}>{toast.qty} article{toast.qty > 1 ? "s" : ""}{!toast.isDonation ? ` · ${euro(toast.tot)}` : ""}</p>
+          </div>
+        </div>
+      )}
+      <div style={{ background: "#1a1a2e", color: "#fff", padding: "0.85rem 1rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontSize: 14 }}>✕ Fermer</button>
+        <span style={{ fontWeight: 700 }}>Nouvelle vente</span>
+        <button onClick={() => setShowCart(true)}
+          style={{ background: cartQty > 0 ? "#1a6b3a" : "rgba(255,255,255,0.15)", border: "none", borderRadius: 10, padding: "8px 14px", color: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 14 }}>
+          🛒 {cartQty > 0 ? `${cartQty} · ${euro(cartAmt)}` : "Panier"}
+        </button>
+      </div>
+      <div style={{ background: "#fff", borderBottom: "1px solid #eee", flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 1rem", scrollbarWidth: "none" }}>
+          {mangas.map(m => (
+            <button key={m} onClick={() => setFManga(m)}
+              style={{ flexShrink: 0, padding: "6px 14px", border: "none", borderRadius: 20, background: fManga === m ? "#1a1a2e" : "#f0eff0", color: fManga === m ? "#fff" : "#1a1a2e", cursor: "pointer", fontWeight: fManga === m ? 700 : 400, fontSize: 13 }}>
+              {m}
+            </button>
+          ))}
+        </div>
+        {activeCats.length > 2 && (
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "0 1rem 8px", scrollbarWidth: "none" }}>
+            {activeCats.map(c => (
+              <button key={c} onClick={() => setFCat(c)}
+                style={{ flexShrink: 0, padding: "4px 12px", border: "1px solid #ddd", borderRadius: 16, background: fCat === c ? "#e8e8f4" : "#fff", color: fCat === c ? "#1a1a2e" : "#6b6b80", cursor: "pointer", fontWeight: fCat === c ? 700 : 400, fontSize: 12 }}>
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 0.9rem" }}>
+        {products.length === 0
+          ? <div style={{ textAlign: "center", padding: "3rem", color: "#aaa" }}><p style={{ fontSize: 30 }}>📦</p><p>Ajoute d'abord des produits</p></div>
+          : Object.entries(grouped).map(([manga, catMap]) => (
+            <div key={manga}>
+              <p style={{ margin: "14px 0 8px", fontSize: 18, fontWeight: 900, color: "#1a1a2e", borderBottom: "2.5px solid #1a1a2e", paddingBottom: 4 }}>{manga}</p>
+              {Object.entries(catMap).map(([cat, prods]) => (
+                <div key={cat}>
+                  <p style={{ margin: "10px 0 8px", fontSize: 15, fontWeight: 800, color: "#555" }}>▸ {cat}</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(95px, 1fr))", gap: 8, marginBottom: 8 }}>
+                    {prods.map(p => {
+                      const inCart = cart.find(i => i.productId === p.id);
+                      const left = p.stock - (inCart?.qty || 0);
+                      return (
+                        <button key={p.id} onClick={() => left > 0 && addToCart(p)} disabled={left <= 0}
+                          style={{ border: inCart ? "2.5px solid #1a1a2e" : "1px solid #e8e8ee", borderRadius: 12, background: "#fff", cursor: left > 0 ? "pointer" : "not-allowed", opacity: left <= 0 ? 0.4 : 1, padding: 0, overflow: "hidden", textAlign: "left" }}>
+                          <div style={{ width: "100%", paddingBottom: "100%", position: "relative", background: "#f4f3f0" }}>
+                            {p.photo
+                              ? <img src={p.photo} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+                              : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>🖼️</div>}
+                            {inCart && <div style={{ position: "absolute", top: 4, right: 4, background: "#1a1a2e", color: "#fff", borderRadius: 10, padding: "2px 6px", fontSize: 11, fontWeight: 700 }}>×{inCart.qty}</div>}
+                            {p.isPack && <div style={{ position: "absolute", top: 4, left: 4, background: "#1a6b3a", color: "#fff", borderRadius: 5, padding: "1px 5px", fontSize: 9, fontWeight: 700 }}>LOT</div>}
+                          </div>
+                          <div style={{ padding: "5px 7px 7px" }}>
+                            <p style={{ margin: 0, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</p>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: "#1a6b3a" }}>{euro(p.price)}</span>
+                              <span style={{ fontSize: 9, color: left <= 2 ? "#e05050" : "#ccc" }}>{left}</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+      </div>
+      {showCart && <Cart cart={cart} products={event.products || []} onAdd={addToCart} onRemove={removeFromCart} onConfirm={confirmSale} onClose={() => setShowCart(false)} />}
+    </div>
+  );
+}
+
+// ── EVENT DETAIL ──────────────────────────────────────────────────────────────
+function EventDetail({ event, onUpdate, onBack }) {
+  const [tab, setTab] = useState("dash");
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [showProdForm, setShowProdForm] = useState(false);
+  const [editProd, setEditProd] = useState(null);
+  const [editCosts, setEditCosts] = useState(false);
+  const [costsState, setCostsState] = useState(event.costs || {});
+  const photoRef = useRef();
+
+  const sales = event.sales || [];
+  const products = event.products || [];
+  const photos = event.eventPhotos || [];
+  const c = calcEvent(event);
+  const toRecover = Math.max(0, c.fixedCosts + c.cogsSold - c.gross);
+  const mangaList = [...new Set(products.map(p => p.manga).filter(Boolean))];
+  const PAY_ICON = { especes: "💵", carte: "💳", mixte: "🔀" };
+  const TABS = [
+    { id: "dash", label: "Dashboard" },
+    { id: "prod", label: "Produits" },
+    { id: "sales", label: "Ventes" },
+    { id: "costs", label: "Frais" },
+    { id: "photos", label: "Photos" },
+    { id: "recap", label: "Récap" },
+  ];
+
+  function handleSale(sale) {
+    const newSales = [...sales, sale];
+    const newProds = products.map(p => {
+      const it = sale.items.find(i => i.productId === p.id);
+      return it ? { ...p, stock: Math.max(0, p.stock - it.qty) } : p;
+    });
+    onUpdate({ ...event, sales: newSales, products: newProds });
+  }
+
+  function saveProd(prod) {
+    const ex = products.find(p => p.id === prod.id);
+    onUpdate({ ...event, products: ex ? products.map(p => p.id === prod.id ? prod : p) : [...products, prod] });
+    setEditProd(null);
+  }
+
+  function deleteProd(id) {
+    if (!confirm("Supprimer ce produit ?")) return;
+    onUpdate({ ...event, products: products.filter(p => p.id !== id) });
+  }
+
+  function deleteSale(id) {
+    if (!confirm("Supprimer cette vente ?")) return;
+    const sale = sales.find(s => s.id === id);
+    const newSales = sales.filter(s => s.id !== id);
+    const newProds = products.map(p => {
+      const it = sale?.items.find(i => i.productId === p.id);
+      return it ? { ...p, stock: p.stock + it.qty } : p;
+    });
+    onUpdate({ ...event, sales: newSales, products: newProds });
+  }
+
+  function saveCosts() {
+    const totalCosts = Object.values(costsState).reduce((t, v) => t + (parseFloat(v) || 0), 0);
+    onUpdate({ ...event, costs: costsState, totalCosts });
+    setEditCosts(false);
+  }
+
+  function addPhotos(e) {
+    const files = Array.from(e.target.files);
+    Promise.all(files.map(f => new Promise(res => {
+      const r = new FileReader();
+      r.onload = ev => res({ id: genId(), src: ev.target.result, caption: "", addedAt: Date.now() });
+      r.readAsDataURL(f);
+    }))).then(newPhotos => onUpdate({ ...event, eventPhotos: [...photos, ...newPhotos] }));
+    e.target.value = "";
+  }
+
+  function deletePhoto(id) { onUpdate({ ...event, eventPhotos: photos.filter(p => p.id !== id) }); }
+  function setCaption(id, cap) { onUpdate({ ...event, eventPhotos: photos.map(p => p.id === id ? { ...p, caption: cap } : p) }); }
+
+  // ── Product groups helper
+  function groupProducts(prods) {
+    const g = {};
+    [...prods].sort((a, b) => (a.sortOrder || 999) - (b.sortOrder || 999)).forEach(p => {
+      const m = p.manga || "Autres";
+      if (!g[m]) g[m] = {};
+      if (!g[m][p.category]) g[m][p.category] = [];
+      g[m][p.category].push(p);
+    });
+    return g;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8f7f5" }}>
+      {/* Header */}
+      <div style={{ background: "#1a1a2e", color: "#fff", padding: "1rem 1.1rem" }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13, marginBottom: 8, padding: 0 }}>← Tous les événements</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>{event.name}</h1>
+            <p style={{ margin: "2px 0 0", color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+              {event.location && `${event.location} · `}{dateRange(event.dateStart || event.date, event.dateEnd)}
+            </p>
+          </div>
+          <button onClick={() => setShowCatalog(true)} style={{ background: "#fff", color: "#1a1a2e", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>+ Vente</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 12 }}>
+          {[
+            { label: "Recettes", value: euro(c.gross), color: "#6fcf97" },
+            { label: c.net >= 0 ? "Bénéfice net" : "À rembourser", value: euro(Math.abs(c.net)), color: c.net >= 0 ? "#6fcf97" : "#eb5757" },
+            { label: "Frais", value: euro(c.fixedCosts), color: "#eb5757" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 10px" }}>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>{s.label}</p>
+              <p style={{ margin: "3px 0 0", fontWeight: 700, fontSize: 13, color: s.color }}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+        {toRecover > 0 && <div style={{ marginTop: 8, background: "rgba(235,87,87,0.2)", border: "1px solid rgba(235,87,87,0.4)", borderRadius: 8, padding: "7px 12px", fontSize: 12 }}>🔴 Encore <strong>{euro(toRecover)}</strong> pour être bénéficiaire</div>}
+        {c.net > 0 && <div style={{ marginTop: 8, background: "rgba(111,207,151,0.2)", border: "1px solid rgba(111,207,151,0.4)", borderRadius: 8, padding: "7px 12px", fontSize: 12 }}>🟢 Bénéfice net : <strong>{euro(c.net)}</strong></div>}
+      </div>
+      {/* Tabs */}
+      <div style={{ overflowX: "auto", scrollbarWidth: "none" }}>
+        <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #eee", minWidth: "max-content" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ padding: "11px 16px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#1a1a2e" : "#6b6b80", borderBottom: tab === t.id ? "2.5px solid #1a1a2e" : "2.5px solid transparent", whiteSpace: "nowrap" }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: "1rem 1.1rem" }}>
+
+        {/* DASHBOARD */}
+        {tab === "dash" && (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              {[
+                { icon: "🧾", label: "Transactions", value: sales.filter(s => !s.isDonation).length },
+                { icon: "🎁", label: "Dons", value: sales.filter(s => s.isDonation).length },
+                { icon: "📦", label: "Articles vendus", value: sales.reduce((t, s) => t + s.items.reduce((ti, i) => ti + i.qty, 0), 0) },
+                { icon: "📊", label: "Marge brute", value: euro(c.gross - c.cogsSold) },
+              ].map(s => (
+                <div key={s.label} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "13px 14px" }}>
+                  <span style={{ fontSize: 18 }}>{s.icon}</span>
+                  <p style={{ margin: "5px 0 2px", fontSize: 10, color: "#6b6b80", textTransform: "uppercase" }}>{s.label}</p>
+                  <p style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>Dernières ventes</p>
+            {sales.length === 0
+              ? <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}>
+                  <p style={{ fontSize: 28, marginBottom: 8 }}>🧾</p>
+                  <button onClick={() => setShowCatalog(true)} style={{ padding: "10px 20px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>Enregistrer une vente</button>
+                </div>
+              : [...sales].reverse().slice(0, 6).map(s => (
+                <div key={s.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 13, marginBottom: 8, overflow: "hidden" }}>
+                  <div style={{ display: "flex" }}>
+                    <div style={{ display: "flex", flexShrink: 0 }}>
+                      {s.items.slice(0, 2).map((it, idx) => (
+                        <div key={idx} style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+                          {it.photo ? <img src={it.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : <div style={{ width: "100%", height: "100%", background: "#f4f3f0", display: "flex", alignItems: "center", justifyContent: "center" }}>🖼️</div>}
+                          {it.qty > 1 && <div style={{ position: "absolute", bottom: 2, right: 2, background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 5, padding: "1px 4px", fontSize: 9, fontWeight: 700 }}>×{it.qty}</div>}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ flex: 1, padding: "8px 10px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{s.isDonation && "🎁 "}{s.items.map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}</p>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#6b6b80" }}>{hhmm(s.timestamp)} {PAY_ICON[s.paymentMethod] || "💵"}</span>
+                        <span style={{ fontWeight: 800, fontSize: 16, color: s.isDonation ? "#aaa" : "#1a6b3a" }}>{s.isDonation ? "Don" : euro(s.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* PRODUITS */}
+        {tab === "prod" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Produits ({products.length})</h2>
+              <button onClick={() => { setEditProd(null); setShowProdForm(true); }} style={{ padding: "8px 14px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>+ Produit</button>
+            </div>
+            {products.length === 0
+              ? <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}><p style={{ fontSize: 28 }}>📦</p><p>Ajoute tes premiers produits</p></div>
+              : Object.entries(groupProducts(products)).map(([manga, catMap]) => (
+                <div key={manga} style={{ marginBottom: 14 }}>
+                  <p style={{ margin: "0 0 6px", fontSize: 11, fontWeight: 800, color: "#6b6b80", textTransform: "uppercase", letterSpacing: "0.05em" }}>{manga}</p>
+                  {Object.entries(catMap).map(([cat, prods]) => (
+                    <div key={cat} style={{ marginBottom: 10 }}>
+                      <p style={{ margin: "0 0 5px", fontSize: 11, color: "#ccc", fontStyle: "italic" }}>{cat}</p>
+                      {prods.map(p => (
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "9px 12px", marginBottom: 5 }}>
+                          {p.photo ? <img src={p.photo} alt="" style={{ width: 42, height: 42, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                            : <div style={{ width: 42, height: 42, borderRadius: 8, background: "#f4f3f0", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🖼️</div>}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                              <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+                              {p.isPack && <span style={{ fontSize: 9, background: "#e8f4e8", color: "#2a7a2a", padding: "2px 5px", borderRadius: 4, fontWeight: 700 }}>LOT</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#1a6b3a" }}>{euro(p.price)}</span>
+                              <span style={{ fontSize: 11, color: "#aaa" }}>revient {euro(p.costPrice)}</span>
+                              <span style={{ fontSize: 11, color: p.stock <= 2 ? "#e05050" : "#aaa" }}>stock: {p.stock}</span>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button onClick={() => { setEditProd(p); setShowProdForm(true); }} style={{ padding: "5px 9px", border: "1px solid #eee", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 12 }}>✏️</button>
+                            <button onClick={() => deleteProd(p.id)} style={{ padding: "5px 9px", border: "1px solid #ffd4d4", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 12 }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* VENTES */}
+        {tab === "sales" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Ventes ({sales.filter(s => !s.isDonation).length})</h2>
+              <button onClick={() => setShowCatalog(true)} style={{ padding: "8px 14px", background: "#1a6b3a", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>+ Vente</button>
+            </div>
+            {sales.length === 0
+              ? <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}><p>Aucune vente enregistrée</p></div>
+              : [...sales].reverse().map(s => (
+                <div key={s.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 13, marginBottom: 9, overflow: "hidden" }}>
+                  <div style={{ display: "flex" }}>
+                    <div style={{ display: "flex", flexShrink: 0 }}>
+                      {s.items.slice(0, 3).map((it, idx) => (
+                        <div key={idx} style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
+                          {it.photo ? <img src={it.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : <div style={{ width: "100%", height: "100%", background: "#f4f3f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🖼️</div>}
+                          {it.qty > 1 && <div style={{ position: "absolute", bottom: 3, right: 3, background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 7, padding: "1px 5px", fontSize: 10, fontWeight: 700 }}>×{it.qty}</div>}
+                        </div>
+                      ))}
+                      {s.items.length > 3 && <div style={{ width: 72, height: 72, background: "#f4f3f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#6b6b80" }}>+{s.items.length - 3}</div>}
+                    </div>
+                    <div style={{ flex: 1, padding: "10px 12px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, flex: 1, lineHeight: 1.3 }}>
+                          {s.isDonation && <span style={{ fontSize: 10, background: "#fff3cd", color: "#856404", padding: "1px 5px", borderRadius: 4, fontWeight: 700, marginRight: 5 }}>DON</span>}
+                          {s.items.map(i => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ""}`).join(" + ")}
+                        </p>
+                        <button onClick={() => deleteSale(s.id)} style={{ padding: "2px 6px", border: "1px solid #ffd4d4", borderRadius: 5, background: "none", cursor: "pointer", fontSize: 10, color: "#e05050", marginLeft: 8, flexShrink: 0 }}>✕</button>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: "#1a1a2e" }}>{hhmm(s.timestamp)}</span>
+                          <span>{PAY_ICON[s.paymentMethod] || "💵"}</span>
+                          {s.discount > 0 && <span style={{ fontSize: 10, background: "#fff0e0", color: "#c07a20", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>-{euro(s.discount)}</span>}
+                        </div>
+                        <span style={{ fontWeight: 800, fontSize: 18, color: s.isDonation ? "#aaa" : "#1a6b3a" }}>{s.isDonation ? "Don 🎁" : euro(s.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* FRAIS */}
+        {tab === "costs" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Frais</h2>
+              {!editCosts && <button onClick={() => setEditCosts(true)} style={{ padding: "8px 14px", border: "1px solid #ddd", borderRadius: 8, background: "none", cursor: "pointer", fontSize: 13 }}>Modifier</button>}
+            </div>
+            <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "1rem 1.1rem" }}>
+              {editCosts ? (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {[["ticket", "Stand / billet"], ["airbnb", "Airbnb"], ["transport", "Transport"], ["other", "Autres"]].map(([k, lb]) => (
+                      <Row key={k} label={`${lb} (€)`}><Inp type="number" value={costsState[k] || ""} onChange={v => setCostsState(cs => ({ ...cs, [k]: v }))} /></Row>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEditCosts(false)} style={{ flex: 1, padding: 10, border: "1px solid #ddd", borderRadius: 8, background: "none", cursor: "pointer" }}>Annuler</button>
+                    <button onClick={saveCosts} style={{ flex: 1, padding: 10, background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>Enregistrer</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {[["ticket", "Stand / billet"], ["airbnb", "Airbnb"], ["transport", "Transport"], ["other", "Autres"]].map(([k, lb]) => (
+                    <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f5f5fa" }}>
+                      <span style={{ color: "#6b6b80" }}>{lb}</span>
+                      <span style={{ fontWeight: 600 }}>{euro(parseFloat(event.costs?.[k]) || 0)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0 4px", fontWeight: 700, fontSize: 15 }}>
+                    <span>Total frais fixes</span><span style={{ color: "#e05050" }}>{euro(c.fixedCosts)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, paddingBottom: 4 }}>
+                    <span style={{ color: "#6b6b80" }}>Coût de revient marchandises</span>
+                    <span style={{ fontWeight: 500 }}>{euro(c.cogsSold)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #f5f5fa", paddingTop: 10, fontWeight: 700, fontSize: 14 }}>
+                    <span>Total à rentrer pour être à 0</span>
+                    <span style={{ color: "#e05050" }}>{euro(c.fixedCosts + c.cogsSold)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* PHOTOS */}
+        {tab === "photos" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Photos ({photos.length})</h2>
+              <label style={{ padding: "8px 14px", background: "#1a1a2e", color: "#fff", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+                📷 Ajouter
+                <input type="file" accept="image/*" multiple onChange={addPhotos} style={{ display: "none" }} />
+              </label>
+            </div>
+            {photos.length === 0
+              ? <div style={{ textAlign: "center", padding: "3rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}>
+                  <p style={{ fontSize: 36 }}>📸</p>
+                  <p style={{ fontWeight: 600, color: "#6b6b80" }}>Aucune photo</p>
+                  <p style={{ fontSize: 13 }}>Stand, vitrine, rencontres…</p>
+                </div>
+              : <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {photos.map(ph => (
+                    <div key={ph.id} style={{ borderRadius: 12, overflow: "hidden", border: "1px solid #eee", background: "#fff" }}>
+                      <div style={{ position: "relative" }}>
+                        <img src={ph.src} alt="" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} />
+                        <button onClick={() => deletePhoto(ph.id)} style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.55)", border: "none", borderRadius: 7, padding: "3px 7px", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✕</button>
+                      </div>
+                      <input value={ph.caption || ""} onChange={e => setCaption(ph.id, e.target.value)} placeholder="Légende…"
+                        style={{ width: "100%", boxSizing: "border-box", border: "none", borderTop: "1px solid #f0f0f5", padding: "7px 10px", fontSize: 12, outline: "none" }} />
+                    </div>
+                  ))}
+                </div>}
+          </div>
+        )}
+
+        {/* RÉCAP */}
+        {tab === "recap" && (() => {
+          const real = sales.filter(s => !s.isDonation);
+          const soldMap = {};
+          real.forEach(s => s.items.forEach(it => {
+            if (!soldMap[it.productId]) soldMap[it.productId] = { productId: it.productId, name: it.name, photo: it.photo, price: it.price, qty: 0, revenue: 0 };
+            soldMap[it.productId].qty += it.qty;
+            soldMap[it.productId].revenue += it.price * it.qty;
+          }));
+          const byQty = Object.values(soldMap).sort((a, b) => b.qty - a.qty);
+          const byRev = Object.values(soldMap).sort((a, b) => b.revenue - a.revenue);
+          const payBrk = { especes: 0, carte: 0, mixte: 0 };
+          real.forEach(s => { payBrk[s.paymentMethod || "especes"] += s.total; });
+          const payTot = Object.values(payBrk).reduce((t, v) => t + v, 0);
+          const avg = real.length > 0 ? c.gross / real.length : 0;
+          const hourMap = {};
+          real.forEach(s => { const h = new Date(s.timestamp).getHours(); hourMap[h] = (hourMap[h] || 0) + 1; });
+          const peak = Object.entries(hourMap).sort((a, b) => b[1] - a[1])[0];
+
+          return (
+            <div>
+              {/* Résumé */}
+              <div style={{ background: "#1a1a2e", borderRadius: 14, padding: "1.25rem", marginBottom: 14, color: "#fff" }}>
+                <p style={{ margin: "0 0 14px", fontSize: 11, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Récapitulatif final</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ background: "rgba(111,207,151,0.15)", borderRadius: 10, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>CA brut</p>
+                    <p style={{ margin: "4px 0 0", fontWeight: 900, fontSize: 22, color: "#6fcf97" }}>{euro(c.gross)}</p>
+                  </div>
+                  <div style={{ background: c.net >= 0 ? "rgba(111,207,151,0.15)" : "rgba(235,87,87,0.15)", borderRadius: 10, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Net final</p>
+                    <p style={{ margin: "4px 0 0", fontWeight: 900, fontSize: 22, color: c.net >= 0 ? "#6fcf97" : "#eb5757" }}>{euro(c.net)}</p>
+                  </div>
+                  <div style={{ background: "rgba(242,153,74,0.12)", borderRadius: 10, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Coût de revient</p>
+                    <p style={{ margin: "4px 0 0", fontWeight: 700, fontSize: 17, color: "#f2994a" }}>{euro(c.cogsSold)}</p>
+                  </div>
+                  <div style={{ background: "rgba(235,87,87,0.12)", borderRadius: 10, padding: "10px 12px" }}>
+                    <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Frais fixes</p>
+                    <p style={{ margin: "4px 0 0", fontWeight: 700, fontSize: 17, color: "#eb5757" }}>{euro(c.fixedCosts)}</p>
+                  </div>
+                </div>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  <div><p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Transactions</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 14 }}>{real.length}</p></div>
+                  <div><p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Panier moyen</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 14 }}>{euro(avg)}</p></div>
+                  <div><p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Heure de pointe</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 14 }}>{peak ? `${peak[0]}h` : "—"}</p></div>
+                </div>
+                {/* Rentabilité */}
+                {(() => {
+                  const rentab = c.gross > 0 ? ((c.net / c.gross) * 100).toFixed(1) : null;
+                  const soldItems = real.reduce((t, s) => t + s.items, []);
+                  const margins = soldItems.filter(i => {
+                    const p = products.find(p => p.id === i.productId);
+                    return p && p.price > 0;
+                  });
+                  const avgMarg = margins.length > 0
+                    ? (margins.reduce((t, i) => {
+                        const p = products.find(p => p.id === i.productId);
+                        return t + (((p.price - (p.costPrice || 0)) / p.price) * 100) * i.qty;
+                      }, 0) / margins.reduce((t, i) => t + i.qty, 0)).toFixed(1)
+                    : null;
+                  return (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div style={{ background: rentab >= 0 ? "rgba(111,207,151,0.15)" : "rgba(235,87,87,0.15)", borderRadius: 8, padding: "8px 10px" }}>
+                        <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Taux de rentabilité</p>
+                        <p style={{ margin: "3px 0 0", fontWeight: 900, fontSize: 20, color: rentab >= 0 ? "#6fcf97" : "#eb5757" }}>{rentab !== null ? `${rentab}%` : "—"}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 9, color: "rgba(255,255,255,0.35)" }}>net / brut</p>
+                      </div>
+                      <div style={{ background: "rgba(242,153,74,0.12)", borderRadius: 8, padding: "8px 10px" }}>
+                        <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Marge moy. produits</p>
+                        <p style={{ margin: "3px 0 0", fontWeight: 900, fontSize: 20, color: "#f2994a" }}>{avgMarg !== null ? `${avgMarg}%` : "—"}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 9, color: "rgba(255,255,255,0.35)" }}>prix vente − revient</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div style={{ display: "none" }}>
+                </div>
+              </div>
+              {/* Paiements */}
+              {payTot > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "1rem 1.1rem", marginBottom: 12 }}>
+                  <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>Répartition paiements</p>
+                  {[["especes", "💵 Espèces"], ["carte", "💳 Carte"], ["mixte", "🔀 Mixte"]].map(([k, lb]) => {
+                    const pct = payTot > 0 ? Math.round((payBrk[k] / payTot) * 100) : 0;
+                    return payBrk[k] > 0 ? (
+                      <div key={k} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ fontSize: 13 }}>{lb}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>{euro(payBrk[k])} <span style={{ color: "#aaa", fontWeight: 400 }}>({pct}%)</span></span>
+                        </div>
+                        <div style={{ height: 6, background: "#f0f0f5", borderRadius: 4 }}>
+                          <div style={{ height: "100%", width: `${pct}%`, background: "#1a1a2e", borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              )}
+              {/* Best sellers */}
+              {byQty.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "1rem 1.1rem", marginBottom: 12 }}>
+                  <p style={{ margin: "0 0 12px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>🏆 Best sellers</p>
+                  {byQty.slice(0, 8).map((it, idx) => (
+                    <div key={it.productId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < byQty.length - 1 ? "1px solid #f5f5fa" : "none" }}>
+                      <span style={{ fontSize: 16, minWidth: 24, textAlign: "center" }}>{idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`}</span>
+                      {it.photo ? <img src={it.photo} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                        : <div style={{ width: 40, height: 40, borderRadius: 8, background: "#f4f3f0", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>🖼️</div>}
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{it.name}</p>
+                        <p style={{ margin: "1px 0 0", fontSize: 11, color: "#aaa" }}>{euro(it.price)} · {it.qty} vendus</p>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <p style={{ margin: 0, fontWeight: 800, fontSize: 14, color: "#1a6b3a" }}>{euro(it.revenue)}</p>
+                        <p style={{ margin: "1px 0 0", fontSize: 10, color: "#aaa" }}>{it.qty} pcs</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {real.length === 0 && <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}><p style={{ fontSize: 28 }}>📊</p><p>Aucune vente pour le récap</p></div>}
+            </div>
+          );
+        })()}
+      </div>
+
+      {showCatalog && <Catalog event={event} onSale={handleSale} onClose={() => setShowCatalog(false)} />}
+      {showProdForm && (
+        <Sheet title={editProd ? "Modifier le produit" : "Ajouter un produit"} onClose={() => { setShowProdForm(false); setEditProd(null); }}>
+          <ProductForm existing={editProd} onSave={saveProd} onClose={() => { setShowProdForm(false); setEditProd(null); }} mangaList={mangaList} />
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+
+// ── HISTORIC EVENT FORM ───────────────────────────────────────────────────────
+function HistoricForm({ onSave, onClose }) {
+  const [name, setName] = useState("");
+  const [ds, setDs] = useState("");
+  const [de, setDe] = useState("");
+  const [loc, setLoc] = useState("");
+  const [costs, setCosts] = useState({ ticket: "", airbnb: "", transport: "", other: "" });
+
+  // Lignes de ventes : produit, prix unitaire, qté, prix revient
+  const [lines, setLines] = useState([
+    { id: genId(), name: "", price: "", costPrice: "", qty: "", category: "Moyen", manga: "" }
+  ]);
+
+  const totalCosts = Object.values(costs).reduce((t, v) => t + (parseFloat(v) || 0), 0);
+  const totalGross = lines.reduce((t, l) => t + (parseFloat(l.price) || 0) * (parseInt(l.qty) || 0), 0);
+  const totalCogs = lines.reduce((t, l) => t + (parseFloat(l.costPrice) || 0) * (parseInt(l.qty) || 0), 0);
+  const totalNet = totalGross - totalCosts - totalCogs;
+
+  // Taux de rentabilité global = net / gross * 100
+  const rentabilite = totalGross > 0 ? ((totalNet / totalGross) * 100).toFixed(1) : null;
+  // Marge moyenne pondérée sur les produits
+  const marginLines = lines.filter(l => parseFloat(l.price) > 0 && parseFloat(l.costPrice) >= 0);
+  const avgMargin = marginLines.length > 0
+    ? (marginLines.reduce((t, l) => {
+        const p = parseFloat(l.price); const c = parseFloat(l.costPrice) || 0;
+        return t + ((p - c) / p) * 100 * (parseInt(l.qty) || 1);
+      }, 0) / marginLines.reduce((t, l) => t + (parseInt(l.qty) || 1), 0)).toFixed(1)
+    : null;
+
+  function addLine() {
+    setLines(prev => [...prev, { id: genId(), name: "", price: "", costPrice: "", qty: "", category: "Moyen", manga: "" }]);
+  }
+  function removeLine(id) { setLines(prev => prev.filter(l => l.id !== id)); }
+  function updateLine(id, key, val) { setLines(prev => prev.map(l => l.id === id ? { ...l, [key]: val } : l)); }
+
+  function save() {
+    if (!name.trim()) { alert("Nom requis"); return; }
+    if (!ds) { alert("Date requise"); return; }
+
+    // Construire les produits et les ventes depuis les lignes
+    const products = lines.filter(l => l.name.trim() && parseFloat(l.price) > 0).map(l => ({
+      id: genId(), name: l.name.trim(), category: l.category, manga: l.manga.trim(),
+      price: parseFloat(l.price), costPrice: parseFloat(l.costPrice) || 0,
+      stock: 0, photo: null, isPack: false, packItems: "", sortOrder: 999,
+    }));
+
+    // Une vente groupée par ligne
+    const sales = lines.filter(l => l.name.trim() && parseFloat(l.price) > 0 && parseInt(l.qty) > 0).map(l => {
+      const prod = products.find(p => p.name === l.name.trim());
+      const qty = parseInt(l.qty);
+      const price = parseFloat(l.price);
+      return {
+        id: genId(),
+        items: [{ productId: prod?.id || genId(), name: l.name.trim(), price, qty, photo: null }],
+        cartTotal: price * qty,
+        discount: 0,
+        isDonation: false,
+        paymentMethod: "especes",
+        total: price * qty,
+        timestamp: new Date(ds).getTime(),
+        isHistoric: true,
+      };
+    });
+
+    onSave({
+      id: genId(),
+      name: name.trim(), dateStart: ds, dateEnd: de || ds, location: loc,
+      costs, totalCosts,
+      products, sales,
+      eventPhotos: [],
+      createdAt: Date.now(),
+      isHistoric: true,
+    });
+    onClose();
+  }
+
+  const ci = (k) => (v) => setCosts(c => ({ ...c, [k]: v }));
+
+  return (
+    <>
+      <div style={{ background: "#fff8e8", border: "1px solid #f2d98a", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "#856404" }}>
+        📅 Mode historique — Saisis les résultats d'une ancienne convention rapidement
+      </div>
+
+      {/* Infos événement */}
+      <Row label="Nom de la convention"><Inp value={name} onChange={setName} placeholder="Epitanime 2023…" /></Row>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Row label="Début"><Inp type="date" value={ds} onChange={setDs} /></Row>
+        <Row label="Fin"><Inp type="date" value={de} onChange={setDe} /></Row>
+      </div>
+      <Row label="Lieu"><Inp value={loc} onChange={setLoc} placeholder="Paris, Lyon…" /></Row>
+
+      {/* Frais optionnels */}
+      <details style={{ marginBottom: 14 }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#6b6b80", padding: "8px 0", userSelect: "none" }}>
+          💸 Frais de l'événement (optionnel) {totalCosts > 0 && `· ${euro(totalCosts)}`}
+        </summary>
+        <div style={{ background: "#f8f8fc", borderRadius: 10, padding: "1rem", marginTop: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Row label="Stand / billet (€)"><Inp type="number" value={costs.ticket} onChange={ci("ticket")} placeholder="0" min="0" /></Row>
+            <Row label="Airbnb (€)"><Inp type="number" value={costs.airbnb} onChange={ci("airbnb")} placeholder="0" min="0" /></Row>
+            <Row label="Transport (€)"><Inp type="number" value={costs.transport} onChange={ci("transport")} placeholder="0" min="0" /></Row>
+            <Row label="Autres (€)"><Inp type="number" value={costs.other} onChange={ci("other")} placeholder="0" min="0" /></Row>
+          </div>
+        </div>
+      </details>
+
+      {/* Lignes de ventes */}
+      <Lbl>Produits vendus</Lbl>
+      <div style={{ marginBottom: 10 }}>
+        {lines.map((line, idx) => (
+          <div key={line.id} style={{ background: "#f8f8fc", borderRadius: 10, padding: "10px 12px", marginBottom: 8, position: "relative" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#6b6b80" }}>Article {idx + 1}</span>
+              {lines.length > 1 && (
+                <button onClick={() => removeLine(line.id)} style={{ border: "none", background: "none", cursor: "pointer", color: "#e05050", fontSize: 16, padding: "0 4px" }}>✕</button>
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <Lbl>Nom du produit</Lbl>
+                <Inp value={line.name} onChange={v => updateLine(line.id, "name", v)} placeholder="Miroir Naruto Géant…" />
+              </div>
+              <div>
+                <Lbl>Manga / série</Lbl>
+                <Inp value={line.manga} onChange={v => updateLine(line.id, "manga", v)} placeholder="Naruto…" />
+              </div>
+              <div>
+                <Lbl>Catégorie</Lbl>
+                <select value={line.category} onChange={e => updateLine(line.id, "category", e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", border: "1px solid #e0e0e8", borderRadius: 8, fontSize: 14, background: "#fff" }}>
+                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <Lbl>Prix vente (€)</Lbl>
+                <Inp type="number" value={line.price} onChange={v => updateLine(line.id, "price", v)} placeholder="35" min="0" step="0.5" />
+              </div>
+              <div>
+                <Lbl>Prix revient (€)</Lbl>
+                <Inp type="number" value={line.costPrice} onChange={v => updateLine(line.id, "costPrice", v)} placeholder="12" min="0" step="0.5" />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <Lbl>Quantité vendue</Lbl>
+                <Inp type="number" value={line.qty} onChange={v => updateLine(line.id, "qty", v)} placeholder="5" min="0" />
+              </div>
+            </div>
+            {/* Mini marge par ligne */}
+            {parseFloat(line.price) > 0 && parseFloat(line.costPrice) >= 0 && (
+              <div style={{ marginTop: 8, display: "flex", gap: 10, fontSize: 11, color: "#6b6b80" }}>
+                <span>Marge unitaire : <strong style={{ color: "#1a6b3a" }}>{euro(parseFloat(line.price) - (parseFloat(line.costPrice) || 0))}</strong></span>
+                <span>({(((parseFloat(line.price) - (parseFloat(line.costPrice) || 0)) / parseFloat(line.price)) * 100).toFixed(0)}%)</span>
+                {parseInt(line.qty) > 0 && <span>· Total : <strong>{euro((parseFloat(line.price)) * parseInt(line.qty))}</strong></span>}
+              </div>
+            )}
+          </div>
+        ))}
+        <button onClick={addLine} style={{ width: "100%", padding: "10px", border: "1px dashed #ccc", borderRadius: 10, background: "none", cursor: "pointer", fontSize: 13, color: "#6b6b80", fontWeight: 600 }}>
+          + Ajouter un produit
+        </button>
+      </div>
+
+      {/* Récap rentabilité */}
+      {totalGross > 0 && (
+        <div style={{ background: "#1a1a2e", borderRadius: 12, padding: "1rem 1.1rem", marginBottom: 16, color: "#fff" }}>
+          <p style={{ margin: "0 0 12px", fontSize: 11, color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>Récap de l'événement</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div style={{ background: "rgba(111,207,151,0.15)", borderRadius: 8, padding: "8px 10px" }}>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>CA brut</p>
+              <p style={{ margin: "3px 0 0", fontWeight: 800, fontSize: 20, color: "#6fcf97" }}>{euro(totalGross)}</p>
+            </div>
+            <div style={{ background: totalNet >= 0 ? "rgba(111,207,151,0.15)" : "rgba(235,87,87,0.15)", borderRadius: 8, padding: "8px 10px" }}>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>Net estimé</p>
+              <p style={{ margin: "3px 0 0", fontWeight: 800, fontSize: 20, color: totalNet >= 0 ? "#6fcf97" : "#eb5757" }}>{euro(totalNet)}</p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Frais fixes</p>
+              <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 13, color: "#eb5757" }}>{euro(totalCosts)}</p>
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Taux rentabilité</p>
+              <p style={{ margin: "2px 0 0", fontWeight: 800, fontSize: 15, color: rentabilite >= 0 ? "#6fcf97" : "#eb5757" }}>
+                {rentabilite !== null ? `${rentabilite}%` : "—"}
+              </p>
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Marge moy. produits</p>
+              <p style={{ margin: "2px 0 0", fontWeight: 800, fontSize: 15, color: "#f2994a" }}>
+                {avgMargin !== null ? `${avgMargin}%` : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <button onClick={save} style={{ width: "100%", padding: "13px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+        Enregistrer l'historique
+      </button>
+    </>
+  );
+}
+
+
+// ── STATUTS CANDIDATURES ──────────────────────────────────────────────────────
+const STATUTS = [
+  { id: "prospect",  label: "À candidater",    color: "#6b7aed", bg: "#eef0fd", border: "#b8bef5", emoji: "💜" },
+  { id: "envoye",    label: "Dossier envoyé",  color: "#f2994a", bg: "#fff4ea", border: "#f5c894", emoji: "🟠" },
+  { id: "accepte",   label: "Accepté ✓",       color: "#1a6b3a", bg: "#e8f5e8", border: "#8dd4a0", emoji: "🟢" },
+  { id: "refuse",    label: "Refusé ✗",        color: "#c0392b", bg: "#fde8e8", border: "#f5a8a8", emoji: "🔴" },
+];
+
+// ── FORMULAIRE CANDIDATURE ────────────────────────────────────────────────────
+function CandidatureForm({ existing, onSave, onClose }) {
+  const [name, setName]         = useState(existing?.name || "");
+  const [city, setCity]         = useState(existing?.city || "");
+  const [ds, setDs]             = useState(existing?.dateStart || "");
+  const [de, setDe]             = useState(existing?.dateEnd || "");
+  const [statut, setStatut]     = useState(existing?.statut || "prospect");
+  const [visitors, setVisitors] = useState(existing?.visitors || "");
+  const [standPrice, setStandPrice] = useState(existing?.standPrice || "");
+  const [notes, setNotes]       = useState(existing?.notes || "");
+  const [website, setWebsite]   = useState(existing?.website || "");
+  const [deadline, setDeadline] = useState(existing?.deadline || "");
+
+  function save() {
+    if (!name.trim()) { alert("Nom requis"); return; }
+    if (!ds) { alert("Date requise"); return; }
+    onSave({
+      id: existing?.id || genId(),
+      name: name.trim(), city, dateStart: ds, dateEnd: de || ds,
+      statut, visitors, standPrice, notes, website, deadline,
+      createdAt: existing?.createdAt || Date.now(),
+    });
+    onClose();
+  }
+
+  const st = STATUTS.find(s => s.id === statut);
+
+  return (
+    <>
+      {/* Statut selector */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+        {STATUTS.map(s => (
+          <button key={s.id} onClick={() => setStatut(s.id)}
+            style={{ padding: "10px 8px", border: `2px solid ${statut === s.id ? s.color : "#eee"}`, borderRadius: 10, background: statut === s.id ? s.bg : "#fff", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ fontSize: 16 }}>{s.emoji}</span>
+            <p style={{ margin: "3px 0 0", fontSize: 12, fontWeight: statut === s.id ? 700 : 500, color: statut === s.id ? s.color : "#6b6b80" }}>{s.label}</p>
+          </button>
+        ))}
+      </div>
+
+      <Row label="Nom de la convention"><Inp value={name} onChange={setName} placeholder="Japan Expo, Epitanime…" /></Row>
+      <Row label="Ville"><Inp value={city} onChange={setCity} placeholder="Paris, Lyon, Bordeaux…" /></Row>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Row label="Date début"><Inp type="date" value={ds} onChange={setDs} /></Row>
+        <Row label="Date fin"><Inp type="date" value={de} onChange={setDe} /></Row>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Row label="Visiteurs estimés"><Inp type="number" value={visitors} onChange={setVisitors} placeholder="5000" min="0" /></Row>
+        <Row label="Prix stand (€)"><Inp type="number" value={standPrice} onChange={setStandPrice} placeholder="200" min="0" /></Row>
+      </div>
+      <Row label="Date limite candidature"><Inp type="date" value={deadline} onChange={setDeadline} /></Row>
+      <Row label="Site web"><Inp value={website} onChange={setWebsite} placeholder="https://…" /></Row>
+      <Row label="Notes">
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Infos utiles, contact, conditions…" rows={3}
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1px solid #e0e0e8", borderRadius: 8, fontSize: 14, resize: "vertical", outline: "none" }} />
+      </Row>
+      <button onClick={save} style={{ width: "100%", padding: "13px", background: st.color, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+        {existing ? "Mettre à jour" : "Ajouter la convention"}
+      </button>
+    </>
+  );
+}
+
+// ── CALENDRIER ────────────────────────────────────────────────────────────────
+function CalendarView({ candidatures, onAdd, onEdit, onDelete }) {
+  const today = new Date();
+  const [year, setYear]   = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth());
+  const [view, setView]   = useState("calendar"); // calendar | list
+
+  const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+  const DAYS   = ["L","M","M","J","V","S","D"];
+
+  // Jours du mois
+  const firstDay = new Date(year, month, 1);
+  const lastDay  = new Date(year, month + 1, 0);
+  const startDow = (firstDay.getDay() + 6) % 7; // lundi = 0
+  const totalDays = lastDay.getDate();
+
+  // Candidatures ce mois
+  function candForDay(day) {
+    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    return candidatures.filter(c => c.dateStart <= dateStr && c.dateEnd >= dateStr);
+  }
+
+  // Candidatures à venir (triées)
+  const upcoming = [...candidatures]
+    .filter(c => new Date(c.dateEnd) >= today)
+    .sort((a, b) => a.dateStart.localeCompare(b.dateStart));
+
+  const past = [...candidatures]
+    .filter(c => new Date(c.dateEnd) < today)
+    .sort((a, b) => b.dateStart.localeCompare(a.dateStart));
+
+  // Deadline alerts
+  const alerts = candidatures.filter(c => {
+    if (!c.deadline || c.statut !== "prospect") return false;
+    const days = Math.ceil((new Date(c.deadline) - today) / 86400000);
+    return days >= 0 && days <= 14;
+  });
+
+  function prevMonth() { if (month === 0) { setMonth(11); setYear(y => y-1); } else setMonth(m => m-1); }
+  function nextMonth() { if (month === 11) { setMonth(0); setYear(y => y+1); } else setMonth(m => m+1); }
+
+  const [selected, setSelected] = useState(null); // candidature détail
+
+  return (
+    <div style={{ padding: "1rem 1.1rem" }}>
+      {/* Alertes deadline */}
+      {alerts.length > 0 && (
+        <div style={{ background: "#fff4ea", border: "1px solid #f5c894", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 13, color: "#c07a20" }}>⚠️ Deadline proche</p>
+          {alerts.map(c => {
+            const days = Math.ceil((new Date(c.deadline) - today) / 86400000);
+            return (
+              <p key={c.id} style={{ margin: "2px 0", fontSize: 12, color: "#6b6b80" }}>
+                <strong>{c.name}</strong> — candidature avant le {new Date(c.deadline).toLocaleDateString("fr-FR")} ({days === 0 ? "aujourd'hui !" : `J-${days}`})
+              </p>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Bouton ajouter */}
+      <button onClick={onAdd} style={{ width: "100%", padding: "12px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 14 }}>
+        + Ajouter une convention
+      </button>
+
+      {/* Toggle vue */}
+      <div style={{ display: "flex", background: "#f0f0f5", borderRadius: 10, padding: 3, marginBottom: 14 }}>
+        {[{id:"calendar",label:"📅 Calendrier"},{id:"list",label:"📋 Liste"}].map(v => (
+          <button key={v.id} onClick={() => setView(v.id)}
+            style={{ flex: 1, padding: "8px", border: "none", borderRadius: 8, background: view === v.id ? "#fff" : "transparent", fontWeight: view === v.id ? 700 : 400, fontSize: 13, cursor: "pointer", color: "#1a1a2e", boxShadow: view === v.id ? "0 1px 4px rgba(0,0,0,0.1)" : "none" }}>
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "calendar" && (
+        <div>
+          {/* Navigation mois */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <button onClick={prevMonth} style={{ border: "none", background: "#f0f0f5", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>‹</button>
+            <span style={{ fontWeight: 800, fontSize: 17 }}>{MONTHS[month]} {year}</span>
+            <button onClick={nextMonth} style={{ border: "none", background: "#f0f0f5", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>›</button>
+          </div>
+          {/* Jours de semaine */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 4 }}>
+            {DAYS.map((d, i) => (
+              <div key={i} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#aaa", padding: "4px 0" }}>{d}</div>
+            ))}
+          </div>
+          {/* Cases */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+            {Array(startDow).fill(null).map((_, i) => <div key={"e"+i} />)}
+            {Array(totalDays).fill(null).map((_, i) => {
+              const day = i + 1;
+              const dayStr = `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+              const isToday = today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
+              const dayCands = candForDay(day);
+              return (
+                <div key={day} style={{ minHeight: 52, background: isToday ? "#f0f0ff" : "#fff", border: isToday ? "2px solid #6b7aed" : "1px solid #f0f0f5", borderRadius: 8, padding: "3px 4px", cursor: dayCands.length > 0 ? "pointer" : "default" }}
+                  onClick={() => dayCands.length > 0 && setSelected(dayCands[0])}>
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: isToday ? 800 : 500, color: isToday ? "#6b7aed" : "#1a1a2e" }}>{day}</p>
+                  {dayCands.slice(0, 2).map(c => {
+                    const st = STATUTS.find(s => s.id === c.statut);
+                    return <div key={c.id} style={{ marginTop: 2, height: 5, borderRadius: 3, background: st?.color || "#aaa" }} />;
+                  })}
+                  {dayCands.length > 2 && <p style={{ margin: "2px 0 0", fontSize: 8, color: "#aaa" }}>+{dayCands.length - 2}</p>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Légende */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
+            {STATUTS.map(s => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#6b6b80" }}>
+                <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} />
+                {s.label}
+              </div>
+            ))}
+          </div>
+
+          {/* Conventions du mois */}
+          {candidatures.filter(c => {
+            const cStart = new Date(c.dateStart);
+            const cEnd = new Date(c.dateEnd);
+            return (cStart.getMonth() === month && cStart.getFullYear() === year) ||
+                   (cEnd.getMonth() === month && cEnd.getFullYear() === year);
+          }).length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>Ce mois-ci</p>
+              {candidatures.filter(c => {
+                const cStart = new Date(c.dateStart);
+                const cEnd = new Date(c.dateEnd);
+                return (cStart.getMonth() === month && cStart.getFullYear() === year) ||
+                       (cEnd.getMonth() === month && cEnd.getFullYear() === year);
+              }).sort((a,b) => a.dateStart.localeCompare(b.dateStart)).map(c => {
+                const st = STATUTS.find(s => s.id === c.statut);
+                return (
+                  <CandidatureCard key={c.id} c={c} st={st} onEdit={onEdit} onDelete={onDelete} />
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "list" && (
+        <div>
+          {upcoming.length > 0 && (
+            <>
+              <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>À venir</p>
+              {upcoming.map(c => {
+                const st = STATUTS.find(s => s.id === c.statut);
+                return <CandidatureCard key={c.id} c={c} st={st} onEdit={onEdit} onDelete={onDelete} />;
+              })}
+            </>
+          )}
+          {past.length > 0 && (
+            <>
+              <p style={{ margin: "16px 0 8px", fontSize: 11, fontWeight: 700, color: "#aaa", textTransform: "uppercase" }}>Passées</p>
+              {past.map(c => {
+                const st = STATUTS.find(s => s.id === c.statut);
+                return <CandidatureCard key={c.id} c={c} st={st} onEdit={onEdit} onDelete={onDelete} />;
+              })}
+            </>
+          )}
+          {candidatures.length === 0 && (
+            <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#aaa" }}>
+              <p style={{ fontSize: 36 }}>📅</p>
+              <p style={{ fontSize: 15, fontWeight: 600, color: "#6b6b80" }}>Aucune convention</p>
+              <p style={{ fontSize: 13 }}>Ajoute tes futures conventions pour t'organiser</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal détail */}
+      {selected && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: "18px 18px 0 0", width: "100%", maxWidth: 560, padding: "1.25rem" }}>
+            {(() => {
+              const st = STATUTS.find(s => s.id === selected.statut);
+              return (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, background: st.bg, color: st.color, border: `1px solid ${st.border}`, padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>{st.emoji} {st.label}</span>
+                      </div>
+                      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{selected.name}</h2>
+                      <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6b6b80" }}>{selected.city} · {dateRange(selected.dateStart, selected.dateEnd)}</p>
+                    </div>
+                    <button onClick={() => setSelected(null)} style={{ border: "none", background: "#f0f0f5", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontWeight: 700, color: "#6b6b80" }}>✕</button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                    {selected.visitors && <div style={{ background: "#f8f8fc", borderRadius: 8, padding: "8px 10px" }}><p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Visiteurs</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 15 }}>{parseInt(selected.visitors).toLocaleString("fr-FR")}</p></div>}
+                    {selected.standPrice && <div style={{ background: "#f8f8fc", borderRadius: 8, padding: "8px 10px" }}><p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Prix stand</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 15 }}>{euro(selected.standPrice)}</p></div>}
+                    {selected.deadline && <div style={{ background: "#fff4ea", borderRadius: 8, padding: "8px 10px" }}><p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Deadline</p><p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 13, color: "#c07a20" }}>{new Date(selected.deadline).toLocaleDateString("fr-FR")}</p></div>}
+                    {selected.website && <div style={{ background: "#f8f8fc", borderRadius: 8, padding: "8px 10px" }}><p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Site</p><a href={selected.website} target="_blank" style={{ fontWeight: 600, fontSize: 12, color: "#6b7aed", textDecoration: "none" }}>Ouvrir ↗</a></div>}
+                  </div>
+                  {selected.notes && <div style={{ background: "#f8f8fc", borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 13, color: "#444", lineHeight: 1.5 }}>{selected.notes}</div>}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => { onEdit(selected); setSelected(null); }} style={{ flex: 1, padding: "11px", border: "1px solid #ddd", borderRadius: 9, background: "none", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>✏️ Modifier</button>
+                    <button onClick={() => { onDelete(selected.id); setSelected(null); }} style={{ padding: "11px 16px", border: "1px solid #ffd4d4", borderRadius: 9, background: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#e05050" }}>🗑️</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CandidatureCard({ c, st, onEdit, onDelete }) {
+  return (
+    <div style={{ background: "#fff", border: `1.5px solid ${st?.border || "#eee"}`, borderLeft: `4px solid ${st?.color || "#aaa"}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+            <span style={{ fontSize: 10, background: st?.bg, color: st?.color, padding: "1px 6px", borderRadius: 8, fontWeight: 700 }}>{st?.emoji} {st?.label}</span>
+          </div>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{c.name}</p>
+          <p style={{ margin: "2px 0 4px", fontSize: 12, color: "#6b6b80" }}>
+            {c.city && `📍 ${c.city} · `}{dateRange(c.dateStart, c.dateEnd)}
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {c.visitors && <span style={{ fontSize: 11, color: "#6b6b80" }}>👥 {parseInt(c.visitors).toLocaleString("fr-FR")} visiteurs</span>}
+            {c.standPrice && <span style={{ fontSize: 11, color: "#6b6b80" }}>🏷️ Stand {euro(c.standPrice)}</span>}
+            {c.deadline && (() => {
+              const days = Math.ceil((new Date(c.deadline) - new Date()) / 86400000);
+              const urgency = days >= 0 && days <= 7;
+              return <span style={{ fontSize: 11, color: urgency ? "#e05050" : "#6b6b80", fontWeight: urgency ? 700 : 400 }}>📋 Deadline {urgency ? (days === 0 ? "aujourd'hui !" : `J-${days}`) : new Date(c.deadline).toLocaleDateString("fr-FR")}</span>;
+            })()}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, marginLeft: 8, flexShrink: 0 }}>
+          <button onClick={() => onEdit(c)} style={{ padding: "5px 8px", border: "1px solid #eee", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 12 }}>✏️</button>
+          <button onClick={() => onDelete(c.id)} style={{ padding: "5px 8px", border: "1px solid #ffd4d4", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 12, color: "#e05050" }}>🗑️</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── GLOBAL STATS ──────────────────────────────────────────────────────────────
+function GlobalStats({ events }) {
+  const [rankSort, setRankSort] = useState("net");
+
+  const withCalc = events.map(ev => ({ ev, c: calcEvent(ev) }));
+  const totals = withCalc.reduce((acc, { c }) => ({
+    gross: acc.gross + c.gross, fixedCosts: acc.fixedCosts + c.fixedCosts,
+    cogsSold: acc.cogsSold + c.cogsSold, net: acc.net + c.net, count: acc.count + c.count
+  }), { gross: 0, fixedCosts: 0, cogsSold: 0, net: 0, count: 0 });
+
+  const SORTS = [
+    { id: "net",        label: "Meilleur net",    icon: "🏆", fn: (a, b) => b.c.net - a.c.net },
+    { id: "gross",      label: "Meilleur brut",   icon: "💰", fn: (a, b) => b.c.gross - a.c.gross },
+    { id: "cheapest",   label: "Moins cher",      icon: "📉", fn: (a, b) => a.c.fixedCosts - b.c.fixedCosts },
+    { id: "costliest",  label: "Plus coûteux",    icon: "📈", fn: (a, b) => b.c.fixedCosts - a.c.fixedCosts },
+    { id: "date",       label: "Plus récent",     icon: "📅", fn: (a, b) => new Date(b.ev.dateStart || b.ev.date) - new Date(a.ev.dateStart || a.ev.date) },
+  ];
+
+  const sorted = [...withCalc].sort(SORTS.find(s => s.id === rankSort)?.fn || (() => 0));
+
+  return (
+    <div style={{ padding: "1rem 1.1rem" }}>
+      {/* Totaux */}
+      <div style={{ background: "#1a1a2e", borderRadius: 14, padding: "1.25rem", marginBottom: 12, color: "#fff" }}>
+        <p style={{ margin: "0 0 14px", fontSize: 11, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Bilan global · {events.length} événement{events.length > 1 ? "s" : ""} · {totals.count} ventes
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div style={{ background: "rgba(111,207,151,0.15)", borderRadius: 10, padding: "12px 14px" }}>
+            <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>CA brut total</p>
+            <p style={{ margin: "5px 0 0", fontWeight: 900, fontSize: 26, color: "#6fcf97" }}>{euro(totals.gross)}</p>
+          </div>
+          <div style={{ background: totals.net >= 0 ? "rgba(111,207,151,0.15)" : "rgba(235,87,87,0.15)", borderRadius: 10, padding: "12px 14px" }}>
+            <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>Net total</p>
+            <p style={{ margin: "5px 0 0", fontWeight: 900, fontSize: 26, color: totals.net >= 0 ? "#6fcf97" : "#eb5757" }}>{euro(totals.net)}</p>
+          </div>
+        </div>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 14 }}>
+          <p style={{ margin: "0 0 10px", fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Déductions</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ background: "rgba(235,87,87,0.12)", borderRadius: 8, padding: "9px 12px" }}>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Frais fixes</p>
+              <p style={{ margin: "3px 0 2px", fontWeight: 700, fontSize: 17, color: "#eb5757" }}>{euro(totals.fixedCosts)}</p>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.3)" }}>stand, transport, airbnb…</p>
+            </div>
+            <div style={{ background: "rgba(242,153,74,0.12)", borderRadius: 8, padding: "9px 12px" }}>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Coût de revient</p>
+              <p style={{ margin: "3px 0 2px", fontWeight: 700, fontSize: 17, color: "#f2994a" }}>{euro(totals.cogsSold)}</p>
+              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.3)" }}>marchandises vendues</p>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: "9px 12px" }}>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>Total déduit du brut</span>
+            <span style={{ fontWeight: 700, fontSize: 15, color: "#eb5757" }}>− {euro(totals.fixedCosts + totals.cogsSold)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Classements */}
+      {events.length > 1 && (
+        <div style={{ marginBottom: 14 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>🏅 Classement</p>
+          {/* Filtres tri */}
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", marginBottom: 10 }}>
+            {SORTS.map(s => (
+              <button key={s.id} onClick={() => setRankSort(s.id)}
+                style={{ flexShrink: 0, padding: "6px 12px", border: "none", borderRadius: 20, background: rankSort === s.id ? "#1a1a2e" : "#f0f0f5", color: rankSort === s.id ? "#fff" : "#1a1a2e", cursor: "pointer", fontWeight: rankSort === s.id ? 700 : 400, fontSize: 12, whiteSpace: "nowrap" }}>
+                {s.icon} {s.label}
+              </button>
+            ))}
+          </div>
+          {/* Podium top 3 */}
+          {sorted.slice(0, 3).map(({ ev, c }, idx) => {
+            const medals = ["🥇", "🥈", "🥉"];
+            const bgs = ["#fffbea", "#f8f8f8", "#fff8f2"];
+            const borders = ["#f2a900", "#b0b0b0", "#c07a20"];
+            const valueFn = {
+              net: c.net, gross: c.gross,
+              cheapest: c.fixedCosts, costliest: c.fixedCosts, date: null
+            };
+            const valueLabel = {
+              net: "Net", gross: "Brut",
+              cheapest: "Frais", costliest: "Frais", date: "Ventes"
+            };
+            const displayVal = rankSort === "date" ? `${c.count} ventes` : euro(valueFn[rankSort]);
+            return (
+              <div key={ev.id} style={{ background: bgs[idx], border: `1.5px solid ${borders[idx]}`, borderRadius: 12, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>{medals[idx]}</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{ev.name}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#888" }}>{dateRange(ev.dateStart || ev.date, ev.dateEnd)}</p>
+                </div>
+                <p style={{ margin: 0, fontWeight: 900, fontSize: 16, color: (rankSort === "net" && c.net < 0) || rankSort === "costliest" ? "#e05050" : "#1a6b3a" }}>{displayVal}</p>
+              </div>
+            );
+          })}
+          {/* Reste du classement */}
+          {sorted.slice(3).map(({ ev, c }, idx) => {
+            const valueFn = { net: c.net, gross: c.gross, cheapest: c.fixedCosts, costliest: c.fixedCosts, date: null };
+            const displayVal = rankSort === "date" ? `${c.count} ventes` : euro(valueFn[rankSort]);
+            return (
+              <div key={ev.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 10, padding: "8px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#aaa", minWidth: 24 }}>{idx + 4}.</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{ev.name}</p>
+                  <p style={{ margin: "1px 0 0", fontSize: 11, color: "#aaa" }}>{dateRange(ev.dateStart || ev.date, ev.dateEnd)}</p>
+                </div>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1a1a2e" }}>{displayVal}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Détail tous événements */}
+      <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#6b6b80", textTransform: "uppercase" }}>Détail par événement</p>
+      {events.length === 0
+        ? <div style={{ textAlign: "center", padding: "2rem", color: "#aaa", background: "#fff", borderRadius: 12, border: "1px solid #eee" }}><p>Aucun événement</p></div>
+        : [...withCalc].sort((a, b) => new Date(b.ev.dateStart || b.ev.date) - new Date(a.ev.dateStart || a.ev.date)).map(({ ev, c }) => (
+          <div key={ev.id} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "11px 13px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{ev.name}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "#aaa" }}>{ev.location && `${ev.location} · `}{dateRange(ev.dateStart || ev.date, ev.dateEnd)}</p>
+              </div>
+              <span>{c.net >= 0 ? "🟢" : "🔴"}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+              <div style={{ background: "#f0faf4", borderRadius: 8, padding: "7px 10px" }}>
+                <p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Brut</p>
+                <p style={{ margin: "2px 0 0", fontWeight: 800, fontSize: 15, color: "#1a6b3a" }}>{euro(c.gross)}</p>
+              </div>
+              <div style={{ background: c.net >= 0 ? "#f0faf4" : "#fff0f0", borderRadius: 8, padding: "7px 10px" }}>
+                <p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Net</p>
+                <p style={{ margin: "2px 0 0", fontWeight: 800, fontSize: 15, color: c.net >= 0 ? "#1a6b3a" : "#e05050" }}>{euro(c.net)}</p>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              <div style={{ background: "#fff8f0", borderRadius: 8, padding: "7px 10px" }}>
+                <p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Coût revient</p>
+                <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 13, color: "#c07a20" }}>{euro(c.cogsSold)}</p>
+              </div>
+              <div style={{ background: "#fff0f0", borderRadius: 8, padding: "7px 10px" }}>
+                <p style={{ margin: 0, fontSize: 9, color: "#aaa", textTransform: "uppercase" }}>Frais fixes</p>
+                <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 13, color: "#e05050" }}>{euro(c.fixedCosts)}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+// ── BACKUP ────────────────────────────────────────────────────────────────────
+function BackupTab({ events, onImport }) {
+  const [status, setStatus] = useState(null);
+  const ref = useRef();
+
+  function doExport() {
+    const blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), events }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `conventions_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function doImport(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        const data = parsed.events || (Array.isArray(parsed) ? parsed : null);
+        if (!data) { setStatus("error"); return; }
+        onImport(data); setStatus("ok"); setTimeout(() => setStatus(null), 3000);
+      } catch { setStatus("error"); setTimeout(() => setStatus(null), 3000); }
+    };
+    r.readAsText(file); e.target.value = "";
+  }
+
+  return (
+    <div style={{ padding: "1rem 1.1rem" }}>
+      <input ref={ref} type="file" accept=".json" onChange={doImport} style={{ display: "none" }} />
+      {status === "ok" && <div style={{ background: "#e8f5e8", border: "1px solid #a8d8a8", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#1a6b3a", fontWeight: 600 }}>✅ Import réussi !</div>}
+      {status === "error" && <div style={{ background: "#fde8e8", border: "1px solid #f5a8a8", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#c0392b", fontWeight: 600 }}>❌ Fichier invalide</div>}
+      {[
+        { icon: "💾", title: "Exporter mes données", desc: `${events.length} événement${events.length > 1 ? "s" : ""} · produits et ventes inclus`, action: doExport, label: "⬇️ Télécharger le fichier JSON" },
+        { icon: "📂", title: "Importer des données", desc: "Restaure un fichier exporté", action: () => ref.current.click(), label: "⬆️ Choisir un fichier JSON", outline: true },
+      ].map(item => (
+        <div key={item.title} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "1.1rem", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 26 }}>{item.icon}</span>
+            <div><p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{item.title}</p><p style={{ margin: "2px 0 0", fontSize: 12, color: "#6b6b80" }}>{item.desc}</p></div>
+          </div>
+          <button onClick={item.action} style={{ width: "100%", padding: "11px", background: item.outline ? "#f8f8fc" : "#1a1a2e", color: item.outline ? "#1a1a2e" : "#fff", border: item.outline ? "1px dashed #ccc" : "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            {item.label}
+          </button>
+          {item.outline && <p style={{ margin: "7px 0 0", fontSize: 11, color: "#e05050" }}>⚠️ L'import remplace toutes tes données actuelles</p>}
+        </div>
+      ))}
+      <div style={{ background: "#f0f4ff", border: "1px solid #c0d0f0", borderRadius: 12, padding: "1rem 1.1rem" }}>
+        <p style={{ margin: "0 0 5px", fontWeight: 600, fontSize: 13 }}>💡 Conseil</p>
+        <p style={{ margin: 0, fontSize: 12, color: "#4a5a80", lineHeight: 1.6 }}>Exporte régulièrement et conserve le fichier sur Google Drive ou iCloud pour ne jamais perdre tes données.</p>
+      </div>
+    </div>
+  );
+}
+
+// ── EVENTS LIST ───────────────────────────────────────────────────────────────
+function EventsList({ events, onSelect, onCreate, onEdit, onImport, onHistory, candidatures, onSaveCandidature, onDeleteCandidature }) {
+  const [tab, setTab] = useState("events");
+  const TABS = [{ id: "events", label: "Événements" }, { id: "planning", label: "Planning" }, { id: "stats", label: "Bilan" }, { id: "backup", label: "Sauvegarde" }];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8f7f5" }}>
+      <div style={{ background: "#1a1a2e", color: "#fff", padding: "1.5rem 1.25rem 1.1rem" }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em" }}>🎌 Mes Conventions</h1>
+        <p style={{ margin: "4px 0 0", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Suivi stock & ventes</p>
+      </div>
+      <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #eee" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ flex: 1, padding: "12px 4px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#1a1a2e" : "#6b6b80", borderBottom: tab === t.id ? "2.5px solid #1a1a2e" : "2.5px solid transparent" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "stats" && <GlobalStats events={events} />}
+      {tab === "backup" && <BackupTab events={events} onImport={onImport} />}
+      {tab === "planning" && (() => {
+        const [showCandForm, setShowCandForm] = useState(false);
+        const [editCand, setEditCand] = useState(null);
+        return (
+          <>
+            <CalendarView
+              candidatures={candidatures}
+              onAdd={() => { setEditCand(null); setShowCandForm(true); }}
+              onEdit={c => { setEditCand(c); setShowCandForm(true); }}
+              onDelete={id => { if (confirm("Supprimer ?")) onDeleteCandidature(id); }}
+            />
+            {showCandForm && (
+              <Sheet title={editCand ? "Modifier" : "Ajouter une convention"} onClose={() => { setShowCandForm(false); setEditCand(null); }}>
+                <CandidatureForm existing={editCand} onSave={c => { onSaveCandidature(c); setShowCandForm(false); setEditCand(null); }} onClose={() => { setShowCandForm(false); setEditCand(null); }} />
+              </Sheet>
+            )}
+          </>
+        );
+      })()}
+      {tab === "events" && (
+        <div style={{ padding: "1rem 1.1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            <button onClick={onCreate} style={{ padding: "13px", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              + Nouvel événement
+            </button>
+            <button onClick={onHistory} style={{ padding: "13px", background: "#fff", color: "#1a1a2e", border: "1.5px solid #1a1a2e", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              📅 Historique
+            </button>
+          </div>
+          {events.length === 0
+            ? <div style={{ textAlign: "center", padding: "3rem 1rem", color: "#aaa" }}>
+                <p style={{ fontSize: 40 }}>🎪</p>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "#6b6b80" }}>Aucun événement</p>
+                <p style={{ fontSize: 13 }}>Crée ton premier événement pour commencer</p>
+              </div>
+            : [...events].sort((a, b) => new Date(b.dateStart || b.date) - new Date(a.dateStart || a.date)).map(ev => {
+              const c = calcEvent(ev);
+              return (
+                <div key={ev.id} onClick={() => onSelect(ev.id)} style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "13px 15px", marginBottom: 9, cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{ev.name}</p>
+                        {ev.isHistoric && <span style={{ fontSize: 10, background: "#fff8e8", color: "#856404", padding: "1px 6px", borderRadius: 10, fontWeight: 700, border: "1px solid #f2d98a" }}>HISTORIQUE</span>}
+                      </div>
+                      <p style={{ margin: "2px 0 7px", fontSize: 12, color: "#6b6b80" }}>
+                        {ev.location && `${ev.location} · `}{dateRange(ev.dateStart || ev.date, ev.dateEnd)}
+                      </p>
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <span style={{ fontSize: 13 }}><span style={{ color: "#aaa" }}>Brut </span><strong style={{ color: "#1a6b3a" }}>{euro(c.gross)}</strong></span>
+                        <span style={{ fontSize: 13 }}><span style={{ color: "#aaa" }}>Net </span><strong style={{ color: c.net >= 0 ? "#1a6b3a" : "#e05050" }}>{euro(c.net)}</strong></span>
+                        <span style={{ fontSize: 13, color: "#aaa" }}>{c.count} ventes</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 17 }}>{c.net >= 0 ? "🟢" : "🔴"}</span>
+                      <button onClick={e => { e.stopPropagation(); onEdit(ev.id); }} style={{ padding: "5px 9px", border: "1px solid #eee", borderRadius: 6, background: "none", cursor: "pointer", fontSize: 12 }}>✏️</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── FIREBASE SYNC ─────────────────────────────────────────────────────────────
+// ⚠️  Remplace les valeurs ci-dessous par ton propre firebaseConfig
+// (Récupère-le dans la console Firebase → Paramètres du projet → Tes applis)
+const FIREBASE_CONFIG = {
+  apiKey:            "REMPLACE_PAR_TA_CLE",
+  authDomain:        "REMPLACE.firebaseapp.com",
+  projectId:         "REMPLACE_PAR_TON_PROJET_ID",
+  storageBucket:     "REMPLACE.appspot.com",
+  messagingSenderId: "REMPLACE",
+  appId:             "REMPLACE",
+};
+
+// Détecte si Firebase est configuré (clés remplacées)
+const FIREBASE_READY = FIREBASE_CONFIG.apiKey !== "REMPLACE_PAR_TA_CLE";
+
+// Firebase chargé via CDN (voir scripts dans <head>)
+async function getFirestore() {
+  if (!FIREBASE_READY) return null;
+  try {
+    const { initializeApp, getApps } = window.firebaseApp;
+    const { getFirestore, doc, setDoc, onSnapshot } = window.firebaseFirestore;
+    const app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
+    return { db: getFirestore(app), doc, setDoc, onSnapshot };
+  } catch (e) { console.error(e); return null; }
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App() {
+  const KEY = "convention_tracker_v1";
+  const PROD_KEY = "convention_products_v1";
+
+  const [events, setEventsRaw] = useState(() => {
+    try { const s = localStorage.getItem(KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [globalProducts, setGlobalProductsRaw] = useState(() => {
+    try { const s = localStorage.getItem(PROD_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+
+  const CAND_KEY = "convention_candidatures_v1";
+  const [candidatures, setCandidatures] = useState(() => {
+    try { const s = localStorage.getItem(CAND_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  useEffect(() => { try { localStorage.setItem(CAND_KEY, JSON.stringify(candidatures)); } catch {} }, [candidatures]);
+
+  function saveCandidature(c) {
+    setCandidatures(prev => {
+      const ex = prev.find(e => e.id === c.id);
+      return ex ? prev.map(e => e.id === c.id ? c : e) : [...prev, c];
+    });
+  }
+  function deleteCandidature(id) { setCandidatures(prev => prev.filter(c => c.id !== id)); }
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(FIREBASE_READY ? "syncing" : "local"); // local | syncing | synced | error
+  const fsRef = useRef(null);
+
+  // ── Initialise Firebase et écoute les changements en temps réel
+  useEffect(() => {
+    if (!FIREBASE_READY) return;
+    getFirestore().then(fs => {
+      if (!fs) { setSyncStatus("error"); return; }
+      fsRef.current = fs;
+      const { db, doc, onSnapshot } = fs;
+
+      // Écoute les données en temps réel
+      const unsubEvents = onSnapshot(doc(db, "data", "events"), snap => {
+        if (snap.exists()) {
+          const data = snap.data().list || [];
+          setEventsRaw(data);
+          try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {}
+        }
+        setSyncStatus("synced");
+      }, () => setSyncStatus("error"));
+
+      const unsubProds = onSnapshot(doc(db, "data", "products"), snap => {
+        if (snap.exists()) {
+          const data = snap.data().list || [];
+          setGlobalProductsRaw(data);
+          try { localStorage.setItem(PROD_KEY, JSON.stringify(data)); } catch {}
+        }
+      }, () => {});
+
+      return () => { unsubEvents(); unsubProds(); };
+    });
+  }, []);
+
+  // ── Sauvegarde dans Firebase + localStorage à chaque changement
+  async function saveEvents(newEvents) {
+    try { localStorage.setItem(KEY, JSON.stringify(newEvents)); } catch {}
+    if (!fsRef.current) return;
+    setSyncStatus("syncing");
+    try {
+      const { db, doc, setDoc } = fsRef.current;
+      await setDoc(doc(db, "data", "events"), { list: newEvents, updatedAt: Date.now() });
+      setSyncStatus("synced");
+    } catch { setSyncStatus("error"); }
+  }
+
+  async function saveProducts(newProds) {
+    try { localStorage.setItem(PROD_KEY, JSON.stringify(newProds)); } catch {}
+    if (!fsRef.current) return;
+    try {
+      const { db, doc, setDoc } = fsRef.current;
+      await setDoc(doc(db, "data", "products"), { list: newProds, updatedAt: Date.now() });
+    } catch {}
+  }
+
+  function setEvents(updater) {
+    setEventsRaw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveEvents(next);
+      return next;
+    });
+  }
+
+  function setGlobalProducts(updater) {
+    setGlobalProductsRaw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveProducts(next);
+      return next;
+    });
+  }
+
+  function saveEvent(ev) {
+    setEvents(prev => {
+      const ex = prev.find(e => e.id === ev.id);
+      return ex ? prev.map(e => e.id === ev.id ? ev : e) : [...prev, ev];
+    });
+  }
+
+  function updateEvent(ev) {
+    setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
+    if (ev.products) {
+      setGlobalProducts(prev => {
+        let updated = [...prev];
+        ev.products.forEach(p => {
+          const idx = updated.findIndex(g => g.id === p.id);
+          if (idx >= 0) { updated[idx] = { ...p, stock: updated[idx].stock }; }
+          else updated.push(p);
+        });
+        return updated;
+      });
+    }
+  }
+
+  function doImport(data) {
+    if (confirm(`Importer ${data.length} événement(s) ? Cela remplace tout.`)) {
+      setEvents(data);
+      const allProds = {};
+      data.forEach(ev => (ev.products || []).forEach(p => { allProds[p.id] = p; }));
+      setGlobalProducts(Object.values(allProds));
+    }
+  }
+
+  const selected = events.find(e => e.id === selectedId);
+  const editEv = events.find(e => e.id === editId);
+  const selectedWithProducts = selected
+    ? { ...selected, products: selected.products?.length > 0 ? selected.products : globalProducts.map(p => ({ ...p, stock: p.stock || 0 })) }
+    : null;
+
+  // Bandeau sync désactivé
+  const syncBanner = null;
+
+  if (selectedWithProducts) return <>{syncBanner}<EventDetail event={selectedWithProducts} onUpdate={updateEvent} onBack={() => setSelectedId(null)} globalProducts={globalProducts} onUpdateGlobalProducts={setGlobalProducts} /></>;
+
+  return (
+    <>
+      {syncBanner}
+      <EventsList
+        events={events}
+        onSelect={id => setSelectedId(id)}
+        onCreate={() => { setEditId(null); setShowForm(true); }}
+        onEdit={id => { setEditId(id); setShowForm(true); }}
+        onImport={doImport}
+        onHistory={() => setShowHistory(true)}
+        candidatures={candidatures}
+        onSaveCandidature={saveCandidature}
+        onDeleteCandidature={deleteCandidature}
+      />
+      {showForm && (
+        <Sheet title={editId ? "Modifier l'événement" : "Nouvel événement"} onClose={() => { setShowForm(false); setEditId(null); }}>
+          <EventForm existing={editEv || null} onSave={saveEvent} onClose={() => { setShowForm(false); setEditId(null); }} />
+        </Sheet>
+      )}
+      {showHistory && (
+        <Sheet title="📅 Ajouter un historique" onClose={() => setShowHistory(false)}>
+          <HistoricForm onSave={ev => { saveEvent(ev); setShowHistory(false); }} onClose={() => setShowHistory(false)} />
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
